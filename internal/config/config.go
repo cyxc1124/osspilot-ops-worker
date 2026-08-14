@@ -1,0 +1,37 @@
+package config
+
+import (
+	"os"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	DatabaseURL       string
+	S3Endpoint        string
+	RGWAccessKey      string
+	RGWSecretKey      string
+	LifecycleInterval time.Duration
+}
+
+func Load() Config {
+	return Config{
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		S3Endpoint:        os.Getenv("S3_ENDPOINT"),
+		RGWAccessKey:      os.Getenv("RGW_ACCESS_KEY"),
+		RGWSecretKey:      os.Getenv("RGW_SECRET_KEY"),
+		LifecycleInterval: getenvDuration("LIFECYCLE_INTERVAL", time.Hour),
+	}
+}
+
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < time.Minute {
+		return fallback
+	}
+	return d
+}

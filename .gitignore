@@ -1,0 +1,17 @@
+/bin/
+/dist/
+/api
+/worker
+*.exe
+*.test
+coverage.out
+vendor/
+
+.env*
+!.env.example
+
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.log
