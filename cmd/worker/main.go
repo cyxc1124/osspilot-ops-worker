@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -55,7 +57,12 @@ func main() {
 			slog.Warn("S3/RGW is not configured")
 			return
 		}
-		if err := (&lifecycle.Runner{Rules: rules, S3: cli}).Run(ctx); err != nil {
+		if err := (&lifecycle.Runner{
+			Rules: rules, S3: cli,
+			After: func(ctx context.Context, bucket string) {
+				enqueueInventory(ctx, cfg.TenantAPIURL, cfg.ProjectionSecret, bucket)
+			},
+		}).Run(ctx); err != nil {
 			slog.Error("lifecycle run", "err", err)
 		}
 	}
@@ -91,4 +98,28 @@ func loadS3(ctx context.Context, store *settings.Store, fb settings.Fallbacks) (
 		return fallback
 	}
 	return enabled, pick("s3_endpoint", fb.S3Endpoint), pick("rgw_access_key", fb.RGWAccessKey), pick("rgw_secret_key", fb.RGWSecretKey), nil
+}
+
+func enqueueInventory(ctx context.Context, base, secret, bucket string) {
+	if strings.TrimSpace(base) == "" || strings.TrimSpace(secret) == "" {
+		slog.Warn("lifecycle inventory skipped", "bucket", bucket, "reason", "TENANT_API_URL/PROJECTION_SECRET unset")
+		return
+	}
+	u := strings.TrimRight(base, "/") + "/internal/buckets/" + url.PathEscape(bucket) + "/inventory"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader("{}"))
+	if err != nil {
+		slog.Warn("lifecycle inventory", "bucket", bucket, "err", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		slog.Warn("lifecycle inventory", "bucket", bucket, "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		slog.Warn("lifecycle inventory", "bucket", bucket, "status", resp.StatusCode)
+	}
 }
