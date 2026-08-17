@@ -14,6 +14,7 @@ const maxDeletesPerAction = 2000
 type Runner struct {
 	Rules *Store
 	S3    *rgw.Client
+	After func(ctx context.Context, bucket string)
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -24,6 +25,12 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	touched := map[string]struct{}{}
+	mark := func(name string, n int) {
+		if n > 0 {
+			touched[name] = struct{}{}
+		}
+	}
 	var objects, trash, versions, multipart int
 	for _, rule := range rules {
 		if rule.DeleteAfterDays != nil && *rule.DeleteAfterDays > 0 {
@@ -32,6 +39,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				slog.Warn("lifecycle delete", "bucket", rule.BucketName, "err", err)
 			}
 			objects += n
+			mark(rule.BucketName, n)
 		}
 		if rule.CleanupTrashAfterDays != nil && *rule.CleanupTrashAfterDays > 0 {
 			n, err := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".trash/", rule.Prefix), *rule.CleanupTrashAfterDays, anyKey)
@@ -39,6 +47,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				slog.Warn("lifecycle trash", "bucket", rule.BucketName, "err", err)
 			}
 			trash += n
+			mark(rule.BucketName, n)
 		}
 		if rule.CleanupVersionsAfterDays != nil && *rule.CleanupVersionsAfterDays > 0 {
 			n, err := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".versions/", rule.Prefix), *rule.CleanupVersionsAfterDays, anyKey)
@@ -46,6 +55,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				slog.Warn("lifecycle versions", "bucket", rule.BucketName, "err", err)
 			}
 			versions += n
+			mark(rule.BucketName, n)
 		}
 		if rule.CleanupMultipartAfterDays != nil && *rule.CleanupMultipartAfterDays > 0 {
 			n, err := r.abortMultipart(ctx, rule.BucketName, rule.Prefix, *rule.CleanupMultipartAfterDays)
@@ -53,6 +63,11 @@ func (r *Runner) Run(ctx context.Context) error {
 				slog.Warn("lifecycle multipart", "bucket", rule.BucketName, "err", err)
 			}
 			multipart += n
+		}
+	}
+	for name := range touched {
+		if r.After != nil {
+			r.After(ctx, name)
 		}
 	}
 	slog.Info("lifecycle run done", "rules", len(rules), "objects", objects, "trash", trash, "versions", versions, "multipart", multipart)
