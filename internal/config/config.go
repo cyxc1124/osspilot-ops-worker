@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	HTTPAddr          string
 	DatabaseURL       string
 	S3Endpoint        string
 	RGWAccessKey      string
@@ -18,6 +19,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
+		HTTPAddr:          getenv("HTTP_ADDR", ":8080"),
 		DatabaseURL:       os.Getenv("DATABASE_URL"),
 		S3Endpoint:        os.Getenv("S3_ENDPOINT"),
 		RGWAccessKey:      os.Getenv("RGW_ACCESS_KEY"),
@@ -26,6 +28,13 @@ func Load() Config {
 		ProjectionSecret:  os.Getenv("PROJECTION_SECRET"),
 		LifecycleInterval: getenvDuration("LIFECYCLE_INTERVAL", time.Hour),
 	}
+}
+
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func getenvDuration(key string, fallback time.Duration) time.Duration {
