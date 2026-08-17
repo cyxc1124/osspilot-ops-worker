@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cyxc1124/osspilot-ops-worker/internal/buildinfo"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/config"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/lifecycle"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/rgw"
@@ -67,6 +68,7 @@ func main() {
 		}
 	}
 
+	go serveHealthz(cfg.HTTPAddr)
 	runOnce()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -121,5 +123,14 @@ func enqueueInventory(ctx context.Context, base, secret, bucket string) {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		slog.Warn("lifecycle inventory", "bucket", bucket, "status", resp.StatusCode)
+	}
+}
+
+func serveHealthz(addr string) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", buildinfo.Healthz)
+	slog.Info("healthz listen", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("healthz", "err", err)
 	}
 }
