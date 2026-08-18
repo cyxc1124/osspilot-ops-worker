@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -56,32 +56,12 @@ func main() {
 	}
 
 	mux := asynq.NewServeMux()
+	mux.HandleFunc(queue.TaskLifecycleRule, jobs.RunRule)
 	mux.HandleFunc(queue.TaskLifecycle, jobs.Run)
 
-	interval := cfg.LifecycleInterval
-	uniqueTTL := queue.UniqueTTL(interval)
-	opts := []asynq.Option{asynq.Unique(uniqueTTL), asynq.MaxRetry(3), asynq.Timeout(2 * time.Hour)}
-	scheduler := asynq.NewScheduler(redisOpt, nil)
-	if _, err := scheduler.Register("@every "+interval.String(), asynq.NewTask(queue.TaskLifecycle, nil), opts...); err != nil {
-		slog.Error("schedule lifecycle", "err", err)
-		os.Exit(1)
-	}
-	go func() {
-		if err := scheduler.Run(); err != nil {
-			slog.Error("scheduler", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	client := asynq.NewClient(redisOpt)
-	defer client.Close()
-	if _, err := client.Enqueue(asynq.NewTask(queue.TaskLifecycle, nil), opts...); err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
-		slog.Warn("enqueue startup lifecycle", "err", err)
-	}
-
 	go serveHealthz(cfg.HTTPAddr)
-	slog.Info("lifecycle worker listen", "interval", interval.String())
-	srv := asynq.NewServer(redisOpt, asynq.Config{Concurrency: 1})
+	slog.Info("lifecycle worker listen", "concurrency", cfg.AsynqConcurrency)
+	srv := asynq.NewServer(redisOpt, asynq.Config{Concurrency: cfg.AsynqConcurrency})
 	if err := srv.Run(withTaskLog(mux)); err != nil {
 		slog.Error("worker", "err", err)
 		os.Exit(1)
@@ -94,6 +74,42 @@ type jobs struct {
 	fb        settings.Fallbacks
 	tenantAPI string
 	secret    string
+}
+
+func (j *jobs) RunRule(ctx context.Context, t *asynq.Task) error {
+	var p struct {
+		RuleID int64 `json:"rule_id"`
+	}
+	if err := json.Unmarshal(t.Payload(), &p); err != nil || p.RuleID < 1 {
+		return fmt.Errorf("invalid lifecycle rule payload")
+	}
+	enabled, endpoint, ak, sk, err := loadS3(ctx, j.settings, j.fb)
+	if err != nil {
+		return fmt.Errorf("load settings: %w", err)
+	}
+	if !enabled {
+		slog.Info("lifecycle cleanup skipped (disabled)")
+		return nil
+	}
+	cli := rgw.New(endpoint, ak, sk)
+	if cli == nil {
+		slog.Warn("S3/RGW is not configured")
+		return nil
+	}
+	rule, err := j.rules.GetByID(ctx, p.RuleID)
+	if err != nil {
+		return err
+	}
+	if rule == nil || !rule.Enabled {
+		slog.Info("lifecycle rule skipped", "id", p.RuleID)
+		return nil
+	}
+	return (&lifecycle.Runner{
+		Rules: j.rules, S3: cli,
+		After: func(ctx context.Context, bucket string) {
+			enqueueInventory(ctx, j.tenantAPI, j.secret, bucket)
+		},
+	}).RunRule(ctx, *rule)
 }
 
 func (j *jobs) Run(ctx context.Context, _ *asynq.Task) error {

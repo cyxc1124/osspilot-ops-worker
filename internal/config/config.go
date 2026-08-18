@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +17,7 @@ type Config struct {
 	TenantAPIURL      string
 	ProjectionSecret  string
 	LifecycleInterval time.Duration
+	AsynqConcurrency  int
 }
 
 func Load() Config {
@@ -29,7 +31,16 @@ func Load() Config {
 		TenantAPIURL:      os.Getenv("TENANT_API_URL"),
 		ProjectionSecret:  os.Getenv("PROJECTION_SECRET"),
 		LifecycleInterval: getenvDuration("LIFECYCLE_INTERVAL", time.Hour),
+		AsynqConcurrency:  concurrency(),
 	}
+}
+
+func concurrency() int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("ASYNQ_CONCURRENCY")))
+	if err != nil || n < 1 {
+		return 4
+	}
+	return n
 }
 
 func getenv(key, fallback string) string {
