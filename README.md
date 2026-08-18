@@ -25,6 +25,8 @@ OssPilot 运营生命周期 worker（Go）。连**运营库**，按 [osspilot-op
 
 `GET /healthz` 默认 `:8080`（`HTTP_ADDR`）。
 
+日志走 stdout（`log/slog`）。`LOG_LEVEL=debug|info|warn|error`（默认 info），`LOG_FORMAT=text|json`（默认 text）。每轮有 `lifecycle run start` / `lifecycle run done`。
+
 ## 本地
 
 不跑迁移（迁移只在 API 仓）：
