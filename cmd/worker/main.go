@@ -15,11 +15,13 @@ import (
 
 	"github.com/cyxc1124/osspilot-ops-worker/internal/config"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/lifecycle"
+	"github.com/cyxc1124/osspilot-ops-worker/internal/logx"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/rgw"
 	"github.com/cyxc1124/osspilot-ops-worker/internal/settings"
 )
 
 func main() {
+	logx.Setup("osspilot-ops-worker")
 	cfg := config.Load()
 	if cfg.DatabaseURL == "" {
 		slog.Error("DATABASE_URL is required for the lifecycle worker")
@@ -43,6 +45,7 @@ func main() {
 	defer stop()
 
 	runOnce := func() {
+		slog.Info("lifecycle run start")
 		enabled, endpoint, ak, sk, err := loadS3(ctx, settingsStore, fb)
 		if err != nil {
 			slog.Error("load settings", "err", err)
