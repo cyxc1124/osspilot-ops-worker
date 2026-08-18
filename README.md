@@ -1,8 +1,10 @@
 # osspilot-ops-worker
 
-OssPilot 运营生命周期 worker（Go）。连**运营库**，按 [osspilot-ops-api](https://github.com/cyxc1124/osspilot-ops-api) 的 `lifecycle_rules` 扫 RGW：到期对象删除、过期分片 abort。
+OssPilot 运营生命周期 worker（Go）。连**运营库**和 Redis，用 asynq。按 [osspilot-ops-api](https://github.com/cyxc1124/osspilot-ops-api) 的 `lifecycle_rules` 扫 RGW：到期对象删除、过期分片 abort。
 
-不用 Redis / asynq，进程内 ticker（默认 1 小时，`LIFECYCLE_INTERVAL`，最短 1 分钟）。启动先跑一轮。
+调度仍在本进程（`lifecycle:run`）。默认每小时入队一次（`LIFECYCLE_INTERVAL`，最短 1 分钟），启动再入一次。`asynq.Unique` 去重，TTL 比间隔少 1 秒。
+
+共用租户那台 Redis，**必须用库 1**（`REDIS_URL=.../1`）。库 0 是租户 asynq，不要共用。
 
 不管清单、回收站/版本的平台设置清理、请求统计、批量复制移动——那些在 [osspilot-tenant-worker](https://github.com/cyxc1124/osspilot-tenant-worker)。
 
@@ -33,6 +35,7 @@ OssPilot 运营生命周期 worker（Go）。连**运营库**，按 [osspilot-op
 
 ```bash
 export DATABASE_URL=postgres://osspilot:osspilot@127.0.0.1:5432/osspilot_ops?sslmode=disable
+export REDIS_URL=redis://127.0.0.1:6379/1
 export S3_ENDPOINT=...
 export RGW_ACCESS_KEY=...
 export RGW_SECRET_KEY=...
@@ -42,7 +45,7 @@ go test ./...
 go run ./cmd/worker
 ```
 
-未设 `DATABASE_URL` 时退出。
+未设 `DATABASE_URL` / `REDIS_URL` 时退出。
 
 ## 许可
 
