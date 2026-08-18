@@ -27,7 +27,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	var objects, trash, versions, multipart int
 	for _, rule := range rules {
-		o, t, v, m := r.runRule(ctx, rule)
+		o, t, v, m, _ := r.runRule(ctx, rule)
 		objects += o
 		trash += t
 		versions += v
@@ -38,12 +38,12 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) RunRule(ctx context.Context, rule Rule) error {
-	objects, trash, versions, multipart := r.runRule(ctx, rule)
+	objects, trash, versions, multipart, err := r.runRule(ctx, rule)
 	slog.Info("lifecycle rule done", "id", rule.ID, "bucket", rule.BucketName, "objects", objects, "trash", trash, "versions", versions, "multipart", multipart)
-	return nil
+	return err
 }
 
-func (r *Runner) runRule(ctx context.Context, rule Rule) (objects, trash, versions, multipart int) {
+func (r *Runner) runRule(ctx context.Context, rule Rule) (objects, trash, versions, multipart int, err error) {
 	touched := 0
 	mark := func(n int) {
 		if n > 0 {
@@ -51,33 +51,37 @@ func (r *Runner) runRule(ctx context.Context, rule Rule) (objects, trash, versio
 		}
 	}
 	if rule.DeleteAfterDays != nil && *rule.DeleteAfterDays > 0 {
-		n, err := r.deletePrefix(ctx, rule.BucketName, rule.Prefix, *rule.DeleteAfterDays, liveOnly)
-		if err != nil {
-			slog.Warn("lifecycle delete", "bucket", rule.BucketName, "err", err)
+		n, e := r.deletePrefix(ctx, rule.BucketName, rule.Prefix, *rule.DeleteAfterDays, liveOnly)
+		if e != nil {
+			slog.Warn("lifecycle delete", "bucket", rule.BucketName, "err", e)
+			err = e
 		}
 		objects += n
 		mark(n)
 	}
 	if rule.CleanupTrashAfterDays != nil && *rule.CleanupTrashAfterDays > 0 {
-		n, err := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".trash/", rule.Prefix), *rule.CleanupTrashAfterDays, anyKey)
-		if err != nil {
-			slog.Warn("lifecycle trash", "bucket", rule.BucketName, "err", err)
+		n, e := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".trash/", rule.Prefix), *rule.CleanupTrashAfterDays, anyKey)
+		if e != nil {
+			slog.Warn("lifecycle trash", "bucket", rule.BucketName, "err", e)
+			err = e
 		}
 		trash += n
 		mark(n)
 	}
 	if rule.CleanupVersionsAfterDays != nil && *rule.CleanupVersionsAfterDays > 0 {
-		n, err := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".versions/", rule.Prefix), *rule.CleanupVersionsAfterDays, anyKey)
-		if err != nil {
-			slog.Warn("lifecycle versions", "bucket", rule.BucketName, "err", err)
+		n, e := r.deletePrefix(ctx, rule.BucketName, joinPrefix(".versions/", rule.Prefix), *rule.CleanupVersionsAfterDays, anyKey)
+		if e != nil {
+			slog.Warn("lifecycle versions", "bucket", rule.BucketName, "err", e)
+			err = e
 		}
 		versions += n
 		mark(n)
 	}
 	if rule.CleanupMultipartAfterDays != nil && *rule.CleanupMultipartAfterDays > 0 {
-		n, err := r.abortMultipart(ctx, rule.BucketName, rule.Prefix, *rule.CleanupMultipartAfterDays)
-		if err != nil {
-			slog.Warn("lifecycle multipart", "bucket", rule.BucketName, "err", err)
+		n, e := r.abortMultipart(ctx, rule.BucketName, rule.Prefix, *rule.CleanupMultipartAfterDays)
+		if e != nil {
+			slog.Warn("lifecycle multipart", "bucket", rule.BucketName, "err", e)
+			err = e
 		}
 		multipart += n
 	}
